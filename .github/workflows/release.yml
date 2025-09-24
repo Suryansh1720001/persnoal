@@ -110,31 +110,12 @@ jobs:
       - name: Generate Release Notes
         id: release_notes
         run: |
-          echo "## What's Changed" > RELEASE_NOTES.md
-          echo "" >> RELEASE_NOTES.md
-          
           PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "${{ env.release_version }}" | head -n1 || echo "")
           
           if [[ -n "$PREVIOUS_TAG" ]]; then
-            
-            # Get merged PRs with branch names and clickable usernames
-            PREVIOUS_TAG_DATE=$(git log -1 --format=%ci $PREVIOUS_TAG 2>/dev/null || echo "2020-01-01")
-            
-            PRS=$(gh pr list --base ${{ github.event.repository.default_branch }} --state merged --search "merged:>$PREVIOUS_TAG_DATE" --limit 15 --json title,number,author,headRefName --jq '.[] | "* \(.headRefName) by @\(.author.login) in #\(.number)"' 2>/dev/null || echo "")
-            
-            if [[ -n "$PRS" ]]; then
-              echo "### Pull Requests" >> RELEASE_NOTES.md
-              echo "" >> RELEASE_NOTES.md
-              echo "$PRS" >> RELEASE_NOTES.md
-              echo "" >> RELEASE_NOTES.md
-            fi
-            
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...${{ env.release_version }}" >> RELEASE_NOTES.md
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...${{ env.release_version }}" > RELEASE_NOTES.md
           else
-            echo "### Release Notes" >> RELEASE_NOTES.md
-            echo "" >> RELEASE_NOTES.md
-            echo "🎉 Initial release!" >> RELEASE_NOTES.md
-            echo "" >> RELEASE_NOTES.md
+            echo "🎉 Initial release!" > RELEASE_NOTES.md
           fi
           
           echo "## Generated Release Notes:"
