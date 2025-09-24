@@ -1,0 +1,179 @@
+name: Create GitHub Release from PR Title
+on:
+  pull_request:
+    types: [ closed ]
+    branches:
+      - master
+      - main  # Support both master and main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.2.3)'
+        required: false
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    name: Create Release and Tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get PR Title or Manual Version
+        id: pr_info
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ -n "${{ github.event.inputs.version }}" ]]; then
+              VERSION="${{ github.event.inputs.version }}"
+            else
+              # Generate version based on latest tag
+              LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+              echo "Latest tag: $LATEST_TAG"
+              # Extract version numbers and increment patch
+              if [[ $LATEST_TAG =~ v?([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+                MAJOR=${BASH_REMATCH[1]}
+                MINOR=${BASH_REMATCH[2]}
+                PATCH=${BASH_REMATCH[3]}
+                NEW_PATCH=$((PATCH + 1))
+                VERSION="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+              else
+                VERSION="v0.0.1"
+              fi
+            fi
+            echo "Manual run: using version $VERSION"
+          else
+            PR_TITLE="${{ github.event.pull_request.title }}"
+            echo "PR Title: $PR_TITLE"
+          
+            # Improved regex to handle more version formats including prep_X.X.X
+            VERSION=$(echo "$PR_TITLE" | grep -ioE '(v|prep_?)?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?' | sed 's/^[pP][rR][eE][pP]_\?/v/')
+          
+            if [[ -z "$VERSION" ]]; then
+              echo "❌ No version found in PR title: '$PR_TITLE'"
+              echo "Expected formats: 'v1.2.3', '1.2.3', 'Release v1.2.3', 'prep_1.2.3', 'PREP_1.2.3', 'Prep_1.2.3', etc."
+              exit 1
+            fi
+          
+            # Ensure version starts with 'v'
+            if [[ ! $VERSION =~ ^v ]]; then
+              VERSION="v$VERSION"
+            fi
+          fi
+          
+          echo "Version extracted: $VERSION"
+          echo "release_version=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: tag_check
+        run: |
+          if git rev-parse "${{ env.release_version }}" >/dev/null 2>&1; then
+            echo "❌ Tag ${{ env.release_version }} already exists!"
+            exit 1
+          else
+            echo "✅ Tag ${{ env.release_version }} is available"
+          fi
+
+      - name: Validate version format
+        run: |
+          if [[ ! "${{ env.release_version }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+            echo "❌ Invalid version format: ${{ env.release_version }}"
+            echo "Expected: v1.2.3 or v1.2.3-alpha"
+            exit 1
+          fi
+          echo "✅ Version format is valid"
+
+      - name: Create Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create annotated tag with message
+          git tag -a "${{ env.release_version }}" -m "Release ${{ env.release_version }}"
+          git push origin "${{ env.release_version }}"
+          echo "✅ Created and pushed tag: ${{ env.release_version }}"
+
+      - name: Generate Release Notes
+        id: release_notes
+        run: |
+          echo "## What's Changed" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          
+          # Get the previous tag for comparison
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "${{ env.release_version }}" | head -n1 || echo "")
+          
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            echo "Comparing with previous tag: $PREVIOUS_TAG"
+          
+            # Get commits since last tag
+            COMMITS=$(git log --oneline --no-merges "$PREVIOUS_TAG..${{ github.sha }}" | head -20)
+          
+            if [[ -n "$COMMITS" ]]; then
+              echo "### 🚀 Features & Changes" >> RELEASE_NOTES.md
+              echo "" >> RELEASE_NOTES.md
+              echo "$COMMITS" | while read -r commit; do
+                echo "* $commit" >> RELEASE_NOTES.md
+              done
+              echo "" >> RELEASE_NOTES.md
+            fi
+          
+            # Get merged PRs if available
+            PRS=$(gh pr list --base master --state merged --search "merged:>$(git log -1 --format=%ci $PREVIOUS_TAG)" --limit 10 --json title,number,author,labels --jq '.[] | "* \(.title) (#\(.number)) @\(.author.login)"' 2>/dev/null || echo "")
+          
+            if [[ -n "$PRS" ]]; then
+              echo "### 📋 Pull Requests" >> RELEASE_NOTES.md
+              echo "" >> RELEASE_NOTES.md
+              echo "$PRS" >> RELEASE_NOTES.md
+              echo "" >> RELEASE_NOTES.md
+            fi
+          
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...${{ env.release_version }}" >> RELEASE_NOTES.md
+          else
+            echo "🎉 Initial release!" >> RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            echo "This is the first release of this project." >> RELEASE_NOTES.md
+          fi
+          
+          echo "" >> RELEASE_NOTES.md
+          echo "---" >> RELEASE_NOTES.md
+          echo "_Generated automatically by GitHub Actions_" >> RELEASE_NOTES.md
+          
+          echo "## Generated Release Notes:"
+          cat RELEASE_NOTES.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.release_version }}
+          name: "🚀 Release ${{ env.release_version }}"
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' || contains(env.release_version, '-') }}
+          generate_release_notes: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## 🎉 Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ env.release_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: Created and pushed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release**: [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.release_version }})" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
