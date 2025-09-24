@@ -166,7 +166,7 @@ jobs:
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: ${{ github.event.inputs.prerelease == 'true' || contains(env.release_version, '-') }}
-          generate_release_notes: false
+          generate_release_notes: true  # This generates Contributors section
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
