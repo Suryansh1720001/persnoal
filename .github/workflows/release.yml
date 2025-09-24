@@ -58,16 +58,16 @@ jobs:
           else
             PR_TITLE="${{ github.event.pull_request.title }}"
             echo "PR Title: $PR_TITLE"
-          
+            
             # Improved regex to handle more version formats including prep_X.X.X
             VERSION=$(echo "$PR_TITLE" | grep -ioE '(v|prep_?)?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?' | sed 's/^[pP][rR][eE][pP]_\?/v/')
-          
+            
             if [[ -z "$VERSION" ]]; then
               echo "❌ No version found in PR title: '$PR_TITLE'"
               echo "Expected formats: 'v1.2.3', '1.2.3', 'Release v1.2.3', 'prep_1.2.3', 'PREP_1.2.3', 'Prep_1.2.3', etc."
               exit 1
             fi
-          
+            
             # Ensure version starts with 'v'
             if [[ ! $VERSION =~ ^v ]]; then
               VERSION="v$VERSION"
@@ -118,29 +118,29 @@ jobs:
           
           if [[ -n "$PREVIOUS_TAG" ]]; then
             echo "Comparing with previous tag: $PREVIOUS_TAG"
-          
-            # Get commits since last tag
-            COMMITS=$(git log --oneline --no-merges "$PREVIOUS_TAG..${{ github.sha }}" | head -20)
-          
+            
+            # Get commits since last tag with author information
+            COMMITS=$(git log --oneline --no-merges "$PREVIOUS_TAG..${{ github.sha }}" --pretty=format:"* %s by %an (%h)" | head -20)
+            
             if [[ -n "$COMMITS" ]]; then
-              echo "### 🚀 Features & Changes" >> RELEASE_NOTES.md
+              echo "### Changes" >> RELEASE_NOTES.md
               echo "" >> RELEASE_NOTES.md
               echo "$COMMITS" | while read -r commit; do
-                echo "* $commit" >> RELEASE_NOTES.md
+                echo "$commit" >> RELEASE_NOTES.md
               done
               echo "" >> RELEASE_NOTES.md
             fi
-          
-            # Get merged PRs if available
-            PRS=$(gh pr list --base master --state merged --search "merged:>$(git log -1 --format=%ci $PREVIOUS_TAG)" --limit 10 --json title,number,author,labels --jq '.[] | "* \(.title) (#\(.number)) @\(.author.login)"' 2>/dev/null || echo "")
-          
+            
+            # Get merged PRs with author information
+            PRS=$(gh pr list --base master --state merged --search "merged:>$(git log -1 --format=%ci $PREVIOUS_TAG)" --limit 10 --json title,number,author,labels --jq '.[] | "* \(.title) by @\(.author.login) (#\(.number))"' 2>/dev/null || echo "")
+            
             if [[ -n "$PRS" ]]; then
-              echo "### 📋 Pull Requests" >> RELEASE_NOTES.md
+              echo "### Pull Requests" >> RELEASE_NOTES.md
               echo "" >> RELEASE_NOTES.md
               echo "$PRS" >> RELEASE_NOTES.md
               echo "" >> RELEASE_NOTES.md
             fi
-          
+            
             echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...${{ env.release_version }}" >> RELEASE_NOTES.md
           else
             echo "🎉 Initial release!" >> RELEASE_NOTES.md
@@ -148,9 +148,7 @@ jobs:
             echo "This is the first release of this project." >> RELEASE_NOTES.md
           fi
           
-          echo "" >> RELEASE_NOTES.md
-          echo "---" >> RELEASE_NOTES.md
-          echo "_Generated automatically by GitHub Actions_" >> RELEASE_NOTES.md
+
           
           echo "## Generated Release Notes:"
           cat RELEASE_NOTES.md
@@ -161,7 +159,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.release_version }}
-          name: "🚀 Release ${{ env.release_version }}"
+          name: "Release ${{ env.release_version }}"
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: ${{ github.event.inputs.prerelease == 'true' || contains(env.release_version, '-') }}
