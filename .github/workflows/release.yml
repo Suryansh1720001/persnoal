@@ -107,31 +107,14 @@ jobs:
           git push origin "${{ env.release_version }}"
           echo "✅ Created and pushed tag: ${{ env.release_version }}"
 
-      - name: Generate Release Notes
-        id: release_notes
-        run: |
-          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -v "${{ env.release_version }}" | head -n1 || echo "")
-          
-          if [[ -n "$PREVIOUS_TAG" ]]; then
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...${{ env.release_version }}" > RELEASE_NOTES.md
-          else
-            echo "🎉 Initial release!" > RELEASE_NOTES.md
-          fi
-          
-          echo "## Generated Release Notes:"
-          cat RELEASE_NOTES.md
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.release_version }}
           name: "Release ${{ env.release_version }}"
-          body_path: RELEASE_NOTES.md
           draft: false
           prerelease: ${{ github.event.inputs.prerelease == 'true' || contains(env.release_version, '-') }}
-          generate_release_notes: true  # This generates Contributors section
+          generate_release_notes: true  # This generates the complete release notes
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
