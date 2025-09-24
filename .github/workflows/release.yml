@@ -122,36 +122,13 @@ jobs:
             # Get commits since last tag with GitHub username
             COMMITS=$(git log --oneline --no-merges "$PREVIOUS_TAG..${{ github.sha }}" --pretty=format:"* %s by @%ae (%h)" | sed 's/@.*@users\.noreply\.github\.com/@/g' | sed 's/@\([^@]*\)@.*/@\1/g' | head -20)
             
-            # Get commits with GitHub usernames
-            echo "Getting commits since $PREVIOUS_TAG..."
-            git log --oneline --no-merges "$PREVIOUS_TAG..${{ github.sha }}" --pretty=format:"%H|%s" | head -20 > commits.tmp
+
             
-            echo "### Changes" >> RELEASE_NOTES.md
-            echo "" >> RELEASE_NOTES.md
-            
-            while IFS='|' read -r commit_hash commit_msg; do
-              # Try to get GitHub username from commit
-              author_email=$(git log -1 --pretty=format:"%ae" $commit_hash)
-              
-              # Extract GitHub username from email
-              if [[ $author_email =~ ([^@]+)@users\.noreply\.github\.com ]]; then
-                github_user="${BASH_REMATCH[1]}"
-                echo "* $commit_msg by @$github_user (${commit_hash:0:7})" >> RELEASE_NOTES.md
-              else
-                # Fallback: try to extract username from email domain
-                username=$(echo "$author_email" | cut -d'@' -f1)
-                echo "* $commit_msg by @$username (${commit_hash:0:7})" >> RELEASE_NOTES.md
-              fi
-            done < commits.tmp
-            
-            rm -f commits.tmp
-            echo "" >> RELEASE_NOTES.md
-            
-            # Get merged PRs with author information
-            PRS=$(gh pr list --base master --state merged --search "merged:>$(git log -1 --format=%ci $PREVIOUS_TAG)" --limit 10 --json title,number,author,labels --jq '.[] | "* \(.title) by @\(.author.login) (#\(.number))"' 2>/dev/null || echo "")
+            # Get merged PRs with branch names and clickable usernames
+            PRS=$(gh pr list --base master --state merged --search "merged:>$(git log -1 --format=%ci $PREVIOUS_TAG)" --limit 15 --json title,number,author,headRefName --jq '.[] | "* \(.headRefName) by @\(.author.login) in #\(.number)"' 2>/dev/null || echo "")
             
             if [[ -n "$PRS" ]]; then
-              echo "### Pull Requests" >> RELEASE_NOTES.md
+              echo "### What's Changed" >> RELEASE_NOTES.md
               echo "" >> RELEASE_NOTES.md
               echo "$PRS" >> RELEASE_NOTES.md
               echo "" >> RELEASE_NOTES.md
